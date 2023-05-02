@@ -4,5 +4,11 @@ compatibility_date = "2023-05-02"
 usage_model = "bundled"
 env = { }
 
+kv_namespaces = [
+    { binding = "llm_report_kv", id = "74bc8ab9377e468298ad7218b642b9d2", preview_id = "8c0a22cde6e4419fb78b62e4a92662ac" }
+#   { binding = "llm-report-kv", id = "ed68a3e2c14643619e384d148f2b7077", preview_id = "2ae6ced5b9574589825f7785151e01c0" }
+# { binding = "llm_report_kv_namespace_test", preview_id = "2ae6ced5b9574589825f7785151e01c0",  }
+]
+
 [triggers]
 crons = [ ]
