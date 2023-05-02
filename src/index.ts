@@ -16,32 +16,40 @@ async function sha256(message: string) {
     .join("");
 }
 
-async function callOpenAI(request: Request): Promise<Response> {
+const getUrl = async (request: Request) => {
   const originalUrl = new URL(request.url);
   const openaiUrl =
     "https://api.openai.com" + originalUrl.pathname + originalUrl.search;
 
-  console.log("url", openaiUrl);
-  const headers = request.headers;
-  const body = await request.text();
-  const method = request.method;
+  return openaiUrl;
+};
 
+async function callOpenAI({
+  url,
+  method,
+  headers,
+  body,
+}: {
+  method: string;
+  url: string;
+  headers: Headers;
+  body?: string;
+}): Promise<Response> {
   let response: Response;
 
   if (method === "POST") {
-    // Remove metadata before sending
-    const { metadata, ...restBody } = JSON.parse(body);
-    response = await fetch(openaiUrl, {
-      method: method,
-      headers: headers,
-      body: JSON.stringify(restBody),
+    response = await fetch(url, {
+      method,
+      headers,
+      body,
     });
     return response;
   } else if (method === "GET") {
-    response = await fetch(openaiUrl, {
-      method: method,
-      headers: headers,
+    response = await fetch(url, {
+      method,
+      headers,
     });
+    return response;
   } else {
     return new Response("Method not allowed", { status: 405 });
   }
@@ -57,26 +65,87 @@ interface OpenAIResponse {
 
 async function handleEvent(event: FetchEvent): Promise<Response> {
   const { request } = event;
-  const res = await callOpenAI(request);
-  const data: OpenAIResponse = await res.json();
+  const headers = request.headers;
+  const body = await request.text();
+  const method = request.method;
+
+  const url = await getUrl(request);
+
+  let metadata: { [key: string]: string } = {};
+  let restBody: { [key: string]: any } = {};
+
+  if (method === "POST") {
+    let { metadata: meta, ...rest } = JSON.parse(body);
+    restBody = rest;
+    metadata = meta;
+  }
+
+  const cacheUrl = new URL(request.url);
+  const cacheKey = cacheUrl.toString();
+
+  const cache = caches.default;
+  let response = await cache.match(cacheKey);
+
+  console.log(
+    "Request Headers",
+    JSON.stringify(Object.fromEntries(headers.entries()), null, 2),
+    "\n"
+  );
+  console.log("Cache key: ", cacheKey, "\n");
+
+  if (!response) {
+    console.log(
+      `Response for request url: ${request.url} not present in cache. Fetching and caching request.`
+    );
+    const res = await callOpenAI({
+      url,
+      method,
+      headers,
+      body: JSON.stringify(restBody),
+    });
+
+    const data: OpenAIResponse = await res.json();
+
+    response = new Response(JSON.stringify(data), {
+      headers: { "content-type": "application/json" },
+    });
+
+    if (headers.get("llm-caching-enabled") === "true") {
+      console.log("Caching enabled");
+      // response.headers.append("Cache-Control", "max-age=3600, public");
+      await cache.put(cacheKey, response.clone());
+    }
+  }
+
+  const data: OpenAIResponse = await response.json();
 
   // waitUntil method is used for sending logs, after response is sent
-  event.waitUntil(
-    prisma.request
-      .create({
-        data: {
-          id: data.id,
-          url: request.url,
-          method: request.method,
-          status: res.status,
-          request_headers: JSON.stringify(request.headers),
-          request_body: JSON.stringify(request.body),
-          response_headers: JSON.stringify(res.headers),
-          response_body: JSON.stringify(data),
-        },
-      })
-      .then()
-  );
+  const r = prisma.request.create({
+    data: {
+      id: data.id,
+      url: url,
+      method: request.method,
+      status: response.status,
+      request_headers: JSON.stringify(
+        Object.fromEntries(request.headers.entries())
+      ),
+      request_body: JSON.stringify(request.body),
+      response_headers: JSON.stringify(
+        Object.fromEntries(response.headers.entries())
+      ),
+      response_body: JSON.stringify(data),
+      metadata: {
+        create: [
+          ...Object.entries(metadata).map(([key, value]) => ({
+            key: key,
+            value: value,
+          })),
+        ],
+      },
+    },
+  });
+
+  event.waitUntil(Promise.all([r]));
 
   return new Response(JSON.stringify(data), {
     headers: { "content-type": "application/json" },
