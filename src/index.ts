@@ -81,7 +81,6 @@ async function handleEvent(event: FetchEvent): Promise<Response> {
 
     const cacheUrl = new URL(request.url);
     const hash = await sha256(body);
-
     cacheUrl.pathname = "/posts" + cacheUrl.pathname + "/" + hash;
 
     const cacheKey = new Request(cacheUrl.toString(), {
@@ -103,25 +102,17 @@ async function handleEvent(event: FetchEvent): Promise<Response> {
       console.log(
         `Response for request url: ${request.url} not present in cache. Fetching and caching request.`
       );
-      const res = await callOpenAI({
+      response = await callOpenAI({
         url,
         method,
         headers,
         body: JSON.stringify(restBody),
       });
 
-      const data: OpenAIResponse = await res.json();
-
-      response = new Response(JSON.stringify(data), {
-        headers: { "content-type": "application/json" },
-      });
-
-      // if (headers.get("llm-cache-enabled") === "true") {
-      //   console.log("Caching enabled");
-      // response.headers.append("Cache-Control", "max-age=3600, public");
-      console.log("Caching response");
-      await cache.put(cacheKey, response.clone());
-      // }
+      if (headers.get("llm-cache-enabled") === "true") {
+        console.log("Caching enabled");
+        await cache.put(cacheKey, response.clone());
+      }
     }
 
     const data: OpenAIResponse = await response.json();
@@ -154,8 +145,12 @@ async function handleEvent(event: FetchEvent): Promise<Response> {
 
     event.waitUntil(Promise.all([r]));
 
+    const resHeaders = new Headers();
+    resHeaders.set("Content-Type", "application/json");
+    resHeaders.set("Cache-Control", "max-age=3600, public");
+
     return new Response(JSON.stringify(data), {
-      headers: { "content-type": "application/json" },
+      headers: resHeaders,
     });
   }
 
