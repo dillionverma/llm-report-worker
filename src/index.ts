@@ -96,7 +96,7 @@ async function handleEvent(event: FetchEvent): Promise<Response> {
       JSON.stringify(Object.fromEntries(headers.entries()), null, 2),
       "\n"
     );
-    console.log("Cache key: ", cacheUrl.pathname, "\n");
+    console.log("Cache key: ", cacheUrl.toString());
 
     if (!response) {
       console.log(
