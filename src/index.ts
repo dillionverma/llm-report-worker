@@ -16,24 +16,69 @@ async function sha256(message: string) {
     .join("");
 }
 
+async function callOpenAI(request: Request): Promise<Response> {
+  const originalUrl = new URL(request.url);
+  const openaiUrl =
+    "https://api.openai.com" + originalUrl.pathname + originalUrl.search;
+
+  console.log("url", openaiUrl);
+  const headers = request.headers;
+  const body = await request.text();
+  const method = request.method;
+
+  let response: Response;
+
+  if (method === "POST") {
+    // Remove metadata before sending
+    const { metadata, ...restBody } = JSON.parse(body);
+    response = await fetch(openaiUrl, {
+      method: method,
+      headers: headers,
+      body: JSON.stringify(restBody),
+    });
+    return response;
+  } else if (method === "GET") {
+    response = await fetch(openaiUrl, {
+      method: method,
+      headers: headers,
+    });
+  } else {
+    return new Response("Method not allowed", { status: 405 });
+  }
+}
+
+interface OpenAIResponse {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  [key: string]: any;
+}
+
 async function handleEvent(event: FetchEvent): Promise<Response> {
   const { request } = event;
+  const res = await callOpenAI(request);
+  const data: OpenAIResponse = await res.json();
 
   // waitUntil method is used for sending logs, after response is sent
   event.waitUntil(
     prisma.request
       .create({
         data: {
+          id: data.id,
           url: request.url,
-          // method: request.method,
-          // message: `${request.method} ${request.url}`,
-          // meta: {
-          //   headers: JSON.stringify(request.headers),
-          // },
+          method: request.method,
+          status: res.status,
+          request_headers: JSON.stringify(request.headers),
+          request_body: JSON.stringify(request.body),
+          response_headers: JSON.stringify(res.headers),
+          response_body: JSON.stringify(data),
         },
       })
       .then()
   );
 
-  return new Response(`request method: ${request.method}!`);
+  return new Response(JSON.stringify(data), {
+    headers: { "content-type": "application/json" },
+  });
 }

@@ -11,8 +11,33 @@ datasource db {
 }
 
 model Request {
-  id        String   @id @default(uuid())
-  url       String
+  id  String @id @unique @default(uuid())
+  url String
+
+  method String
+  status Int
+
+  request_headers Json
+  request_body    Json
+
+  response_headers Json
+  response_body    Json
+
+  metadata Metadata[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Metadata {
+  id String @id @unique @default(uuid())
+
+  key   String
+  value String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  Request   Request? @relation(fields: [requestId], references: [id])
+  requestId String?
 }
