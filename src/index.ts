@@ -42,12 +42,18 @@ async function callOpenAI({
       method,
       headers,
       body,
+      cf: {
+        cacheEverything: true,
+      },
     });
     return response;
   } else if (method === "GET") {
     response = await fetch(url, {
       method,
       headers,
+      cf: {
+        cacheEverything: true,
+      },
     });
     return response;
   } else {
