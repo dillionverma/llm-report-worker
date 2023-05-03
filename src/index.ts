@@ -82,6 +82,7 @@ async function handleEvent(event: FetchEvent): Promise<Response> {
     const cacheUrl = new URL(request.url);
     const hash = await sha256(body);
     cacheUrl.pathname = "/posts" + cacheUrl.pathname + "/" + hash;
+    console.log("Cache url path: ", cacheUrl.pathname);
 
     const cacheKey = new Request(cacheUrl.toString(), {
       headers: request.headers,
@@ -111,7 +112,7 @@ async function handleEvent(event: FetchEvent): Promise<Response> {
 
       if (headers.get("llm-cache-enabled") === "true") {
         console.log("Caching enabled");
-        await cache.put(cacheKey, response.clone());
+        event.waitUntil(cache.put(cacheKey, response.clone()));
       }
     }
 
