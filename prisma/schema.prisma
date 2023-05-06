@@ -12,19 +12,22 @@ datasource db {
 }
 
 model Request {
-  id  String @id @unique @default(uuid())
-  url String
+  id String @id @unique @default(uuid())
 
-  method String
-  status Int
+  prompt_tokens     Int
+  completion_tokens Int
+  total_tokens      Int
+  metadata          Metadata[]
 
-  request_headers Json
-  request_body    Json
-
+  ip               String
+  url              String
+  method           String
+  status           Int
+  cached           Boolean
+  request_headers  Json
+  request_body     Json
   response_headers Json
   response_body    Json
-
-  metadata Metadata[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
