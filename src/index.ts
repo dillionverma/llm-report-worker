@@ -1,6 +1,8 @@
 import { PrismaClient } from "@prisma/client/edge";
 const prisma = new PrismaClient();
 
+const CACHE_AGE = 60 * 60 * 24 * 30; // 30 days
+
 addEventListener("fetch", (event) => {
   event.respondWith(handleEvent(event));
 });
@@ -29,32 +31,21 @@ async function callOpenAI({
   method,
   headers,
   body,
+  request,
 }: {
   method: string;
   url: string;
   headers: Headers;
   body?: string;
+  request: Request;
 }): Promise<Response> {
   let response: Response;
 
   if (method === "POST") {
-    response = await fetch(url, {
-      method,
-      headers,
-      body,
-      cf: {
-        cacheEverything: true,
-      },
-    });
+    response = await fetch(url, request);
     return response;
   } else if (method === "GET") {
-    response = await fetch(url, {
-      method,
-      headers,
-      cf: {
-        cacheEverything: true,
-      },
-    });
+    response = await fetch(url, request);
     return response;
   } else {
     return new Response("Method not allowed", { status: 405 });
@@ -69,10 +60,63 @@ interface OpenAIResponse {
   [key: string]: any;
 }
 
+const saveRequestToDb = async (
+  request: Request,
+  response: Response,
+  url: string,
+  body: { [key: string]: any },
+  metadata: { [key: string]: any },
+  cached: boolean = false
+) => {
+  const data: OpenAIResponse = await response.json();
+
+  // waitUntil method is used for sending logs, after response is sent
+  const r = prisma.request.create({
+    data: {
+      openai_id: data.id,
+      ip: request.headers.get("x-real-ip") || "",
+      url: url,
+      method: request.method,
+      status: response.status,
+      request_headers: JSON.stringify(
+        Object.fromEntries(request.headers.entries())
+      ),
+      request_body: JSON.stringify(body),
+      response_headers: JSON.stringify(
+        Object.fromEntries(response.headers.entries())
+      ),
+      response_body: JSON.stringify(data),
+
+      cached: cached,
+
+      prompt_tokens: data.usage.prompt_tokens,
+      completion_tokens: data.usage.completion_tokens,
+      total_tokens: data.usage.total_tokens,
+      metadata: {
+        create: [
+          ...Object.entries(metadata || {}).map(([key, value]) => ({
+            key: key,
+            value: value,
+          })),
+        ],
+      },
+    },
+  });
+
+  return r;
+};
+
+const logHeaders = async (headers: Headers) => {
+  console.log(
+    JSON.stringify(Object.fromEntries(headers.entries()), null, 2),
+    "\n"
+  );
+};
+
 async function handleEvent(event: FetchEvent): Promise<Response> {
   const { request } = event;
   const headers = request.headers;
-  const body = await request.text();
+  const body = await request.clone().text();
   const method = request.method;
 
   const url = await getUrl(request);
@@ -98,67 +142,51 @@ async function handleEvent(event: FetchEvent): Promise<Response> {
     const cache = caches.default;
     let response = await cache.match(cacheKey);
 
-    console.log(
-      "Request Headers",
-      JSON.stringify(Object.fromEntries(headers.entries()), null, 2),
-      "\n"
-    );
+    logHeaders(headers);
+
     console.log("Cache key: ", cacheUrl.toString());
 
+    let cached = false;
+
     if (!response) {
-      console.log(
-        `Response for request url: ${request.url} not present in cache. Fetching and caching request.`
-      );
-      response = await callOpenAI({
-        url,
-        method,
+      cached = false;
+      console.log("miss");
+      const initialResponse = await fetch(url, request);
+
+      logHeaders(initialResponse.headers);
+
+      const headers = new Headers(initialResponse.headers);
+      headers.set("cache-control", `public, max-age=${CACHE_AGE}`);
+
+      logHeaders(initialResponse.headers);
+
+      response = new Response(initialResponse.body, {
+        status: initialResponse.status,
+        statusText: initialResponse.statusText,
         headers,
-        body: JSON.stringify(restBody),
       });
 
-      if (headers.get("llm-cache-enabled") === "true") {
-        console.log("Caching enabled");
-        event.waitUntil(cache.put(cacheKey, response.clone()));
-      }
+      // if (headers.get("llm-cache-enabled") === "true") {
+      // console.log("Caching enabled");
+      event.waitUntil(cache.put(cacheKey, response.clone()));
+      // }
+    } else {
+      cached = true;
+      console.log("hit");
     }
 
-    const data: OpenAIResponse = await response.json();
+    event.waitUntil(
+      saveRequestToDb(
+        request,
+        response.clone(),
+        url,
+        JSON.parse(body),
+        metadata,
+        cached
+      )
+    );
 
-    // waitUntil method is used for sending logs, after response is sent
-    const r = prisma.request.create({
-      data: {
-        id: data.id,
-        url: url,
-        method: request.method,
-        status: response.status,
-        request_headers: JSON.stringify(
-          Object.fromEntries(request.headers.entries())
-        ),
-        request_body: JSON.stringify(request.body),
-        response_headers: JSON.stringify(
-          Object.fromEntries(response.headers.entries())
-        ),
-        response_body: JSON.stringify(data),
-        metadata: {
-          create: [
-            ...Object.entries(metadata).map(([key, value]) => ({
-              key: key,
-              value: value,
-            })),
-          ],
-        },
-      },
-    });
-
-    event.waitUntil(Promise.all([r]));
-
-    const resHeaders = new Headers();
-    resHeaders.set("Content-Type", "application/json");
-    resHeaders.set("Cache-Control", "max-age=3600, public");
-
-    return new Response(JSON.stringify(data), {
-      headers: resHeaders,
-    });
+    return response;
   }
 
   return new Response("Method not allowed", { status: 405 });
