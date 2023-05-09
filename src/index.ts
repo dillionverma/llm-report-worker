@@ -89,9 +89,9 @@ const saveRequestToDb = async (
 
       cached: cached,
 
-      prompt_tokens: data.usage.prompt_tokens,
-      completion_tokens: data.usage.completion_tokens,
-      total_tokens: data.usage.total_tokens,
+      // prompt_tokens: data.usage.prompt_tokens,
+      // completion_tokens: data.usage.completion_tokens,
+      // total_tokens: data.usage.total_tokens,
       metadata: {
         create: [
           ...Object.entries(metadata || {}).map(([key, value]) => ({
@@ -160,15 +160,19 @@ async function handleEvent(event: FetchEvent): Promise<Response> {
 
       logHeaders(initialResponse.headers);
 
-      response = new Response(initialResponse.body, {
-        status: initialResponse.status,
-        statusText: initialResponse.statusText,
-        headers,
-      });
+      try {
+        response = new Response(initialResponse.body, {
+          status: initialResponse.status,
+          statusText: initialResponse.statusText,
+          headers,
+        });
 
-      // if (headers.get("llm-cache-enabled") === "true") {
-      // console.log("Caching enabled");
-      event.waitUntil(cache.put(cacheKey, response.clone()));
+        // if (headers.get("llm-cache-enabled") === "true") {
+        // console.log("Caching enabled");
+        event.waitUntil(cache.put(cacheKey, response.clone()));
+      } catch (e) {
+        console.error("Error: ", e);
+      }
       // }
     } else {
       cached = true;

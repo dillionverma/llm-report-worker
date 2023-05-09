@@ -139,11 +139,8 @@ model VerificationToken {
 model Request {
   id String @id @unique @default(uuid())
 
-  openai_id         String
-  prompt_tokens     Int
-  completion_tokens Int
-  total_tokens      Int
-  metadata          Metadata[]
+  openai_id String
+  metadata  Metadata[]
 
   ip               String
   url              String
