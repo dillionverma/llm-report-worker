@@ -146,8 +146,8 @@ model Request {
   url      String
   method   String
   status   Int
-  cached   Boolean
-  streamed Boolean
+  cached   Boolean @default(false)
+  streamed Boolean @default(false)
 
   request_headers  Json
   request_body     Json
