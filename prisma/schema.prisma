@@ -154,7 +154,7 @@ model Request {
   response_headers Json
 
   response_body          Json?
-  streamed_response_body String?
+  streamed_response_body String? @db.Text
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
