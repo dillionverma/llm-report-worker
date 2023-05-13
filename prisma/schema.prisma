@@ -142,15 +142,19 @@ model Request {
   openai_id String
   metadata  Metadata[]
 
-  ip               String
-  url              String
-  method           String
-  status           Int
-  cached           Boolean
+  ip       String
+  url      String
+  method   String
+  status   Int
+  cached   Boolean
+  streamed Boolean
+
   request_headers  Json
   request_body     Json
   response_headers Json
-  response_body    Json
+
+  response_body          Json?
+  streamed_response_body String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
