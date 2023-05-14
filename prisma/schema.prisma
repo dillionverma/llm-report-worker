@@ -67,6 +67,7 @@ model User {
   sessions      Session[]
   keys          ApiKey[]
   payments      Payment[]
+  Request       Request[]
 
   @@index([id])
 }
@@ -139,6 +140,9 @@ model VerificationToken {
 model Request {
   id String @id @unique @default(uuid())
 
+  user   User?   @relation(fields: [userId], references: [id])
+  userId String?
+
   openai_id String
   metadata  Metadata[]
 
@@ -160,6 +164,8 @@ model Request {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model Metadata {
