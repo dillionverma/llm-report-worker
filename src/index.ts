@@ -103,6 +103,9 @@ const saveRequestToDb = async (
 
         cached: cached,
         streamed: streamed,
+
+        user_id: request.headers.get("X-User-Id") || "",
+
         completion: completion,
 
         metadata: {
