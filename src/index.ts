@@ -1,4 +1,11 @@
 import { PrismaClient } from "@prisma/client/edge";
+import {
+  getCompletionFromStream,
+  getTokenCount,
+  getUrl,
+  numTokensFromMessages,
+  sha256,
+} from "./lib";
 
 const prisma = new PrismaClient();
 
@@ -7,44 +14,6 @@ const CACHE_AGE = 60 * 60 * 24 * 30; // 30 days
 addEventListener("fetch", (event) => {
   event.respondWith(handleEvent(event));
 });
-
-async function sha256(message: string) {
-  // encode as UTF-8
-  const msgBuffer = new TextEncoder().encode(message);
-  // hash the message
-  const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
-  // convert bytes to hex string
-  return [...new Uint8Array(hashBuffer)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-const getUrl = async (request: Request) => {
-  const originalUrl = new URL(request.url);
-  const openaiUrl =
-    "https://api.openai.com" + originalUrl.pathname + originalUrl.search;
-
-  return openaiUrl;
-};
-
-const getCompletionFromStream = (stream: string): string => {
-  if (!stream) return "";
-  const events = stream
-    .split("\n")
-    .filter((e) => e.length > 0)
-    .slice(0, -1); // cut off the last one
-
-  let completion = "";
-
-  for (const event of events) {
-    const json = event.replace("data: ", "");
-    const parsed = JSON.parse(json);
-
-    completion += parsed.choices[0].delta.content || "";
-  }
-
-  return completion;
-};
 
 interface OpenAIResponse {
   id: string;
@@ -68,6 +37,8 @@ const saveRequestToDb = async (
 ) => {
   let streamed_id: string = "";
   let completion: string = "";
+  let prompt_tokens: number = 0;
+  let completion_tokens: number = 0;
 
   if (streamed) {
     const data = streamed_data?.split("\n\n")[0].replace("data: ", "");
@@ -82,8 +53,12 @@ const saveRequestToDb = async (
     } else {
       completion = data?.choices[0].message.content;
     }
+    prompt_tokens = numTokensFromMessages(body.messages);
+    completion_tokens = getTokenCount(completion);
   } else if (url === "https://api.openai.com/v1/completions") {
     completion = data?.choices[0].text;
+    prompt_tokens = getTokenCount(body?.prompt);
+    completion_tokens = getTokenCount(completion);
   }
 
   try {
@@ -105,8 +80,10 @@ const saveRequestToDb = async (
         streamed: streamed,
 
         user_id: request.headers.get("X-User-Id"),
+        prompt_tokens,
+        completion_tokens,
 
-        completion: completion,
+        completion,
 
         metadata: {
           create: [

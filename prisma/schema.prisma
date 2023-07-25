@@ -154,6 +154,9 @@ model Request {
   streamed Boolean @default(false)
   user_id  String? // ID of the user passed in through header
 
+  prompt_tokens     Int?
+  completion_tokens Int?
+
   request_headers  Json
   request_body     Json
   response_headers Json
