@@ -37,6 +37,7 @@ const saveRequestToDb = async (
 ) => {
   let streamed_id: string = "";
   let completion: string = "";
+  let model: string = "";
   let prompt_tokens: number = 0;
   let completion_tokens: number = 0;
 
@@ -55,10 +56,12 @@ const saveRequestToDb = async (
     }
     prompt_tokens = numTokensFromMessages(body.messages);
     completion_tokens = getTokenCount(completion);
+    model = body.model;
   } else if (url === "https://api.openai.com/v1/completions") {
     completion = data?.choices[0].text;
     prompt_tokens = getTokenCount(body?.prompt);
     completion_tokens = getTokenCount(completion);
+    model = body.model;
   }
 
   try {
@@ -82,7 +85,7 @@ const saveRequestToDb = async (
         user_id: request.headers.get("X-User-Id"),
         prompt_tokens,
         completion_tokens,
-
+        model,
         completion,
 
         metadata: {
