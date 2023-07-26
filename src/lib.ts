@@ -99,9 +99,10 @@ export function numTokensFromMessages(
   return numTokens;
 }
 
+const tokenizer = new GPT3Tokenizer({ type: "gpt3" }); // or 'codex'
+
 // https://github.com/botisan-ai/gpt3-tokenizer#readme
 export const getTokenCount = (str: string) => {
-  const tokenizer = new GPT3Tokenizer({ type: "gpt3" }); // or 'codex'
   const encoded: { bpe: number[]; text: string[] } = tokenizer.encode(str);
   return encoded.bpe.length;
 };
