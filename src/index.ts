@@ -67,7 +67,7 @@ const saveRequestToDb = async (
   try {
     const r = prisma.request.create({
       data: {
-        openai_id: streamed ? streamed_id : data?.id,
+        openai_id: streamed ? streamed_id : data?.id || "",
         ip: request.headers.get("x-real-ip") || "",
         url: url,
         method: request.method,
@@ -268,7 +268,7 @@ async function handleEvent(event: FetchEvent): Promise<Response> {
         }
 
         const text = decoder.decode(value, { stream: true });
-        console.log(text);
+        // console.log(text);
 
         responseData += text;
         return reader.read().then(process);
