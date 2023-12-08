@@ -3,6 +3,12 @@ main = "src/index.ts"
 compatibility_date = "2023-05-02"
 usage_model = "unbound"
 env = { }
+node_compat = true
 
 [triggers]
 crons = [ ]
+
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "ca57823483c24ed5af3d0e2049653485"
+localConnectionString = "postgres://postgres:postgres@localhost:5432/llm_report?schema=public"

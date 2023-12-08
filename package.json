@@ -10,12 +10,15 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20231121.0",
     "@types/node": "^20.1.4",
+    "@types/pg": "^8.10.9",
     "prisma": "4.12.0"
   },
   "dependencies": {
     "@prisma/client": "4.12.0",
     "crypto": "^1.0.1",
-    "gpt3-tokenizer": "^1.1.5"
+    "gpt3-tokenizer": "^1.1.5",
+    "pg": "^8.11.3"
   }
 }

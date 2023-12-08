@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client/edge";
+import { Client } from "pg";
 import {
   getCompletionFromStream,
   getTokenCount,
@@ -7,13 +7,11 @@ import {
   sha256,
 } from "./lib";
 
-const prisma = new PrismaClient();
+export interface Env {
+  HYPERDRIVE: Hyperdrive;
+}
 
 const CACHE_AGE = 60 * 60 * 24 * 30; // 30 days
-
-addEventListener("fetch", (event) => {
-  event.respondWith(handleEvent(event));
-});
 
 interface OpenAIResponse {
   id: string;
@@ -24,11 +22,11 @@ interface OpenAIResponse {
 }
 
 const saveRequestToDb = async (
+  client: Client,
   request: Request,
   response: Response,
   url: string,
   body: { [key: string]: any },
-  metadata: { [key: string]: any },
   cached: boolean = false,
   streamed: boolean = false,
   userId: string,
@@ -40,6 +38,12 @@ const saveRequestToDb = async (
   let model: string = "";
   let prompt_tokens: number = 0;
   let completion_tokens: number = 0;
+
+  // Convert Request and Response headers to JSON
+  const requestHeaders = request.headers;
+  const responseHeaders = response.headers;
+
+  const currentTimestamp = new Date().toISOString();
 
   if (streamed) {
     const data = streamed_data?.split("\n\n")[0].replace("data: ", "");
@@ -65,42 +69,48 @@ const saveRequestToDb = async (
   }
 
   try {
-    const r = prisma.request.create({
-      data: {
-        openai_id: streamed ? streamed_id : data?.id || "",
-        ip: request.headers.get("x-real-ip") || "",
-        url: url,
-        method: request.method,
-        status: response.status,
-        request_headers: Object.fromEntries(request.headers.entries()),
-        request_body: body,
-        response_headers: Object.fromEntries(response.headers.entries()),
+    // Insert into Request table
+    const requestInsertQuery = `
+     INSERT INTO "Request" (
+       id, openai_id, ip, url, method, status,
+       request_headers, request_body, response_headers, response_body,
+       streamed_response_body, cached, streamed, user_id,
+       prompt_tokens, completion_tokens, model, completion, "userId",     "createdAt", "updatedAt"
+     ) VALUES (
+       gen_random_uuid(), $1, $2, $3, $4, $5,
+       $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
+     ) RETURNING id`;
 
-        response_body: streamed ? undefined : data,
-        streamed_response_body: streamed ? streamed_data : undefined,
+    const openaiId = streamed ? streamed_id : data?.id || "";
+    const requestInsertValues = [
+      openaiId,
+      requestHeaders.get("x-real-ip") || "",
+      url,
+      request.method,
+      response.status,
+      JSON.stringify(requestHeaders),
+      JSON.stringify(body),
+      JSON.stringify(responseHeaders),
+      streamed ? undefined : JSON.stringify(data),
+      streamed ? streamed_data : undefined,
+      cached,
+      streamed,
+      requestHeaders.get("X-User-Id"),
+      prompt_tokens,
+      completion_tokens,
+      model,
+      completion,
+      userId,
+      currentTimestamp, // Set createdAt to currentTimestamp
+      currentTimestamp, // Set updatedAt to currentTimestamp
+    ];
 
-        cached: cached,
-        streamed: streamed,
+    const requestResult = await client.query(
+      requestInsertQuery,
+      requestInsertValues
+    );
 
-        user_id: request.headers.get("X-User-Id"),
-        prompt_tokens,
-        completion_tokens,
-        model,
-        completion,
-
-        metadata: {
-          create: [
-            ...Object.entries(metadata || {}).map(([key, value]) => ({
-              key: key,
-              value: value,
-            })),
-          ],
-        },
-        userId: userId,
-      },
-    });
-
-    return r;
+    return requestResult.rows[0];
   } catch (e) {
     console.error(e);
     return null;
@@ -123,179 +133,196 @@ const getApiKey = async (request: Request) => {
   return apiKey;
 };
 
-const getUser = async (apiKey: string) => {
-  const key = await prisma.apiKey.findUnique({
-    where: {
-      hashed_key: await sha256(apiKey),
-    },
-    include: {
-      user: true,
-    },
-  });
+const getUser = async (client: Client, apiKey: string) => {
+  const hashedApiKey = await sha256(apiKey);
 
-  return key?.user;
+  const query = {
+    text: 'SELECT "User".* FROM "ApiKey" JOIN "User" ON "ApiKey"."userId" = "User".id WHERE "ApiKey".hashed_key = $1',
+    values: [hashedApiKey],
+  };
+
+  const result = await client.query(query);
+
+  // Check if the user was found
+  if (result.rows.length > 0) {
+    return result.rows[0]; // Return the found user
+  } else {
+    return null; // Return null if no user was found
+  }
 };
 
-async function handleEvent(event: FetchEvent): Promise<Response> {
-  const { request } = event;
-  const headers = request.headers;
-  const body = await request.clone().text();
-  const method = request.method;
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    const headers = request.headers;
+    const body = await request.clone().text();
+    const method = request.method;
 
-  const url = await getUrl(request);
+    const url = await getUrl(request);
 
-  const key = await getApiKey(request);
+    const key = await getApiKey(request);
 
-  if (!key) {
-    return new Response(
-      JSON.stringify({
-        message: "Go to https://llm.report/ to get an API key.",
-        error: "Missing API key in X-Api-Key header.",
-      }),
-      {
-        status: 401,
-        headers: {
-          "Content-Type": "Application/json",
-        },
-      }
-    );
-  }
+    if (!key) {
+      return new Response(
+        JSON.stringify({
+          message: "Go to https://llm.report/ to get an API key.",
+          error: "Missing API key in X-Api-Key header.",
+        }),
+        {
+          status: 401,
+          headers: {
+            "Content-Type": "Application/json",
+          },
+        }
+      );
+    }
 
-  const user = await getUser(key);
-
-  if (!user) {
-    return new Response(
-      JSON.stringify({
-        message: "Go to https://llm.report/ to get an API key.",
-        error: "User not found.",
-      }),
-      {
-        status: 401,
-        headers: {
-          "Content-Type": "Application/json",
-        },
-      }
-    );
-  }
-
-  let metadata: { [key: string]: string } = {};
-  let restBody: { [key: string]: any } = {};
-
-  if (method === "POST") {
-    let { metadata: meta, ...rest } = JSON.parse(body);
-    restBody = rest;
-    metadata = meta;
-
-    const cacheUrl = new URL(request.url);
-    const hash = await sha256(body);
-    cacheUrl.pathname = "/posts" + cacheUrl.pathname + "/" + hash;
-    console.log("Cache url path: ", cacheUrl.pathname);
-
-    const cacheKey = new Request(cacheUrl.toString(), {
-      headers: request.headers,
-      method: "GET",
+    const client = new Client({
+      connectionString: env.HYPERDRIVE.connectionString,
     });
 
-    const cache = caches.default;
-    let response = await cache.match(cacheKey);
+    await client.connect();
 
-    logHeaders(headers);
+    const user = await getUser(client, key);
 
-    console.log("Cache key: ", cacheUrl.toString());
+    if (!user) {
+      return new Response(
+        JSON.stringify({
+          message: "Go to https://llm.report/ to get an API key.",
+          error: "User not found.",
+        }),
+        {
+          status: 401,
+          headers: {
+            "Content-Type": "Application/json",
+          },
+        }
+      );
+    }
 
-    let cached = false;
+    let metadata: { [key: string]: string } = {};
+    let restBody: { [key: string]: any } = {};
 
-    if (!response) {
-      cached = false;
-      console.log("miss");
-      const initialResponse = await fetch(url, request);
+    if (method === "POST") {
+      let { metadata: meta, ...rest } = JSON.parse(body);
+      restBody = rest;
+      metadata = meta;
 
-      logHeaders(initialResponse.headers);
+      const cacheUrl = new URL(request.url);
+      const hash = await sha256(body);
+      cacheUrl.pathname = "/posts" + cacheUrl.pathname + "/" + hash;
+      console.log("Cache url path: ", cacheUrl.pathname);
 
-      const headers = new Headers(initialResponse.headers);
-      headers.set("cache-control", `public, max-age=${CACHE_AGE}`);
+      const cacheKey = new Request(cacheUrl.toString(), {
+        headers: request.headers,
+        method: "GET",
+      });
+
+      const cache = caches.default;
+      let response = await cache.match(cacheKey);
 
       logHeaders(headers);
 
-      // Create a new response with the transformed readable stream
-      response = new Response(initialResponse.body, {
-        status: initialResponse.status,
-        statusText: initialResponse.statusText,
-        headers,
-      });
+      console.log("Cache key: ", cacheUrl.toString());
 
-      // if (headers.get("llm-cache-enabled") === "true") {
-      // console.log("Caching enabled");
-      event.waitUntil(cache.put(cacheKey, response.clone()));
-      // } catch (e) {
-      //   console.error("Error: ", e);
-      // }
-      // }
-    } else {
-      cached = true;
-      console.log("hit");
+      let cached = false;
+
+      if (!response) {
+        cached = false;
+        console.log("miss");
+        const initialResponse = await fetch(url, request);
+
+        logHeaders(initialResponse.headers);
+
+        const headers = new Headers(initialResponse.headers);
+        headers.set("cache-control", `public, max-age=${CACHE_AGE}`);
+
+        logHeaders(headers);
+
+        // Create a new response with the transformed readable stream
+        response = new Response(initialResponse.body, {
+          status: initialResponse.status,
+          statusText: initialResponse.statusText,
+          headers,
+        });
+
+        // if (headers.get("llm-cache-enabled") === "true") {
+        // console.log("Caching enabled");
+
+        ctx.waitUntil(cache.put(cacheKey, response.clone()));
+        // } catch (e) {
+        //   console.error("Error: ", e);
+        // }
+        // }
+      } else {
+        cached = true;
+        console.log("hit");
+      }
+
+      const isStream = JSON.parse(body).stream === true;
+
+      if (isStream) {
+        const c = response.clone();
+        const reader = c.body.getReader();
+        const decoder = new TextDecoder();
+
+        let responseData = "";
+
+        reader
+          .read()
+          .then(async function process({ done, value }): Promise<any> {
+            if (done) {
+              // console.log("Stream complete. Result:");
+              // console.log(responseData);
+              // Store responseData in your database
+              ctx.waitUntil(
+                saveRequestToDb(
+                  client,
+                  request,
+                  c,
+                  url,
+                  JSON.parse(body),
+                  // metadata,
+                  cached,
+                  true,
+                  user.id,
+                  undefined,
+                  responseData
+                )
+              );
+              return;
+            }
+
+            const text = decoder.decode(value, { stream: true });
+            // console.log(text);
+
+            responseData += text;
+            return reader.read().then(process);
+          });
+
+        return response;
+      } else {
+        console.log("Stream is false");
+
+        const c = response.clone();
+
+        ctx.waitUntil(
+          saveRequestToDb(
+            client,
+            request,
+            c,
+            url,
+            JSON.parse(body),
+            // metadata,
+            cached,
+            false,
+            user.id,
+            await c.json()
+          )
+        );
+        return response;
+      }
     }
 
-    const isStream = JSON.parse(body).stream === true;
-
-    if (isStream) {
-      const c = response.clone();
-      const reader = c.body.getReader();
-      const decoder = new TextDecoder();
-
-      let responseData = "";
-
-      reader.read().then(async function process({ done, value }): Promise<any> {
-        if (done) {
-          // console.log("Stream complete. Result:");
-          // console.log(responseData);
-          // Store responseData in your database
-          event.waitUntil(
-            saveRequestToDb(
-              request,
-              c,
-              url,
-              JSON.parse(body),
-              metadata,
-              cached,
-              true,
-              user.id,
-              undefined,
-              responseData
-            )
-          );
-          return;
-        }
-
-        const text = decoder.decode(value, { stream: true });
-        // console.log(text);
-
-        responseData += text;
-        return reader.read().then(process);
-      });
-
-      return response;
-    } else {
-      console.log("Stream is false");
-
-      const c = response.clone();
-
-      event.waitUntil(
-        saveRequestToDb(
-          request,
-          c,
-          url,
-          JSON.parse(body),
-          metadata,
-          cached,
-          false,
-          user.id,
-          await c.json()
-        )
-      );
-      return response;
-    }
-  }
-
-  return new Response("Method not allowed", { status: 405 });
-}
+    return new Response("Method not allowed", { status: 405 });
+  },
+};
