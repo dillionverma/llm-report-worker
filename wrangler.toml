@@ -10,5 +10,5 @@ crons = [ ]
 
 [[hyperdrive]]
 binding = "HYPERDRIVE"
-id = "ca57823483c24ed5af3d0e2049653485"
+id = "8ebc6b14da5d4d2194bb59e98d76d386"
 localConnectionString = "postgres://postgres:postgres@localhost:5432/llm_report?schema=public"
