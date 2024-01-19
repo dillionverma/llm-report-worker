@@ -9,6 +9,7 @@ import {
 
 export interface Env {
   HYPERDRIVE: Hyperdrive;
+  DATABASE_URL: string;
 }
 
 const CACHE_AGE = 60 * 60 * 24 * 30; // 30 days
@@ -141,7 +142,11 @@ const getUser = async (client: Client, apiKey: string) => {
     values: [hashedApiKey],
   };
 
+  console.log("sending query");
+
   const result = await client.query(query);
+
+  console.log("sent query");
 
   // Check if the user was found
   if (result.rows.length > 0) {
@@ -176,9 +181,7 @@ export default {
       );
     }
 
-    const client = new Client({
-      connectionString: env.HYPERDRIVE.connectionString,
-    });
+    const client = new Client(env.DATABASE_URL);
 
     await client.connect();
 
@@ -199,13 +202,13 @@ export default {
       );
     }
 
-    let metadata: { [key: string]: string } = {};
+    // let metadata: { [key: string]: string } = {};
     let restBody: { [key: string]: any } = {};
 
     if (method === "POST") {
-      let { metadata: meta, ...rest } = JSON.parse(body);
+      let { ...rest } = JSON.parse(body);
       restBody = rest;
-      metadata = meta;
+      // metadata = meta;
 
       const cacheUrl = new URL(request.url);
       const hash = await sha256(body);
