@@ -1,7 +1,6 @@
 name = "llm-report-worker"
 main = "src/index.ts"
 compatibility_date = "2023-05-02"
-usage_model = "unbound"
 env = { }
 node_compat = true
 
