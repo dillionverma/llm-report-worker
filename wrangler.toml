@@ -6,8 +6,3 @@ node_compat = true
 
 [triggers]
 crons = [ ]
-
-# [[hyperdrive]]
-# binding = "HYPERDRIVE"
-# id = "19d2fba93cd148c1a9f60fd046f2bef5"
-# # localConnectionString = "postgres://postgres:postgres@localhost:5432/llm_report?schema=public"
