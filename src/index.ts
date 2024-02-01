@@ -22,6 +22,75 @@ interface OpenAIResponse {
   [key: string]: any;
 }
 
+async function generateCacheKey(url: URL, body: string, headers: Headers) {
+  // Generate a unique cache key based on the URL and the request body
+  const bodyHash = await sha256(body); // Use a hash function for the body
+  url.pathname += `/${bodyHash}`; // Append the hash to the pathname to make the key unique
+
+  return new Request(url.toString(), {
+    headers,
+    method: "GET",
+  });
+}
+
+async function handleCaching(
+  request: Request,
+  body: string,
+  headers: Headers,
+  url: string,
+  ctx: ExecutionContext
+) {
+  const cacheUrl = new URL(request.url);
+  const cacheKey = await generateCacheKey(cacheUrl, body, headers); // Generate a unique cache key based on the request URL and body
+
+  const cache = caches.default;
+  let response = await cache.match(cacheKey);
+
+  if (!response) {
+    console.log("Cache miss for:", cacheKey.url);
+
+    const newRequestHeaders = new Headers();
+    newRequestHeaders.set("Content-Type", "application/json");
+    newRequestHeaders.set(
+      "Authorization",
+      request.headers.get("Authorization")!
+    );
+    newRequestHeaders.set("X-Api-Key", request.headers.get("X-Api-Key")!);
+
+    const openAIResponse = await fetch(url, {
+      body: request.body,
+      method: request.method,
+      headers: newRequestHeaders,
+    });
+
+    response = new Response(
+      openAIResponse.body as ReadableStream<Uint8Array> | null,
+      {
+        status: openAIResponse.status,
+        statusText: openAIResponse.statusText,
+        headers: openAIResponse.headers,
+      }
+    );
+    // Set the cache-control header on the new response
+    response.headers.set("cache-control", `public, max-age=${CACHE_AGE}`);
+
+    ctx.waitUntil(cache.put(cacheKey, response.clone()));
+    return { response, cached: false };
+  }
+
+  console.log("Cache hit for:", cacheKey.url);
+  return { response, cached: true };
+}
+
+const parseHeaders = (headers: Headers) =>
+  Object.fromEntries(headers.entries());
+
+const parseRequest = async (request: Request) => {
+  const { headers, method } = request;
+  const body = method === "POST" ? JSON.parse(await request.text()) : {};
+  return { headers, body, method };
+};
+
 const saveRequestToDb = async (
   client: Client,
   request: Request,
@@ -125,15 +194,6 @@ const logHeaders = async (headers: Headers) => {
   );
 };
 
-const getApiKey = async (request: Request) => {
-  const headers = request.headers;
-  const authHeader = headers.get("X-Api-Key");
-  if (!authHeader) return null;
-
-  const apiKey = authHeader.replace("Bearer ", "");
-  return apiKey;
-};
-
 const getUser = async (client: Client, apiKey: string) => {
   const hashedApiKey = await sha256(apiKey);
 
@@ -158,13 +218,10 @@ const getUser = async (client: Client, apiKey: string) => {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
-    const headers = request.headers;
-    const body = await request.clone().text();
-    const method = request.method;
-
+    const requestCopy = request.clone();
+    const { headers, body, method } = await parseRequest(request);
     const url = await getUrl(request);
-
-    const key = await getApiKey(request);
+    const key = headers.get("X-Api-Key")?.replace("Bearer ", "");
 
     if (!key) {
       return new Response(
@@ -174,15 +231,11 @@ export default {
         }),
         {
           status: 401,
-          headers: {
-            "Content-Type": "Application/json",
-          },
         }
       );
     }
 
     const client = new Client(env.DATABASE_URL);
-
     await client.connect();
 
     const user = await getUser(client, key);
@@ -195,137 +248,78 @@ export default {
         }),
         {
           status: 401,
-          headers: {
-            "Content-Type": "Application/json",
-          },
         }
       );
     }
 
-    // let metadata: { [key: string]: string } = {};
-    let restBody: { [key: string]: any } = {};
-
-    if (method === "POST") {
-      let { ...rest } = JSON.parse(body);
-      restBody = rest;
-      // metadata = meta;
-
-      const cacheUrl = new URL(request.url);
-      const hash = await sha256(body);
-      cacheUrl.pathname = "/posts" + cacheUrl.pathname + "/" + hash;
-      console.log("Cache url path: ", cacheUrl.pathname);
-
-      const cacheKey = new Request(cacheUrl.toString(), {
-        headers: request.headers,
-        method: "GET",
-      });
-
-      const cache = caches.default;
-      let response = await cache.match(cacheKey);
-
-      logHeaders(headers);
-
-      console.log("Cache key: ", cacheUrl.toString());
-
-      let cached = false;
-
-      if (!response) {
-        cached = false;
-        console.log("miss");
-        const initialResponse = await fetch(url, request);
-
-        logHeaders(initialResponse.headers);
-
-        const headers = new Headers(initialResponse.headers);
-        headers.set("cache-control", `public, max-age=${CACHE_AGE}`);
-
-        logHeaders(headers);
-
-        // Create a new response with the transformed readable stream
-        response = new Response(initialResponse.body, {
-          status: initialResponse.status,
-          statusText: initialResponse.statusText,
-          headers,
-        });
-
-        // if (headers.get("llm-cache-enabled") === "true") {
-        // console.log("Caching enabled");
-
-        ctx.waitUntil(cache.put(cacheKey, response.clone()));
-        // } catch (e) {
-        //   console.error("Error: ", e);
-        // }
-        // }
-      } else {
-        cached = true;
-        console.log("hit");
-      }
-
-      const isStream = JSON.parse(body).stream === true;
-
-      if (isStream) {
-        const c = response.clone();
-        const reader = c.body.getReader();
-        const decoder = new TextDecoder();
-
-        let responseData = "";
-
-        reader
-          .read()
-          .then(async function process({ done, value }): Promise<any> {
-            if (done) {
-              // console.log("Stream complete. Result:");
-              // console.log(responseData);
-              // Store responseData in your database
-              ctx.waitUntil(
-                saveRequestToDb(
-                  client,
-                  request,
-                  c,
-                  url,
-                  JSON.parse(body),
-                  // metadata,
-                  cached,
-                  true,
-                  user.id,
-                  undefined,
-                  responseData
-                )
-              );
-              return;
-            }
-
-            const text = decoder.decode(value, { stream: true });
-            // console.log(text);
-
-            responseData += text;
-            return reader.read().then(process);
-          });
-
-        return response;
-      } else {
-        console.log("Stream is false");
-
-        const c = response.clone();
-
-        ctx.waitUntil(
-          saveRequestToDb(
-            client,
-            request,
-            c,
-            url,
-            JSON.parse(body),
-            // metadata,
-            cached,
-            false,
-            user.id,
-            await c.json()
-          )
-        );
-        return response;
-      }
+    if (method !== "POST") {
+      return new Response("Method not allowed", { status: 405 });
     }
 
-    return new Response("Method not allowed", { status: 405 });
+    const { response, cached } = await handleCaching(
+      requestCopy,
+      body,
+      headers,
+      url,
+      ctx
+    );
+
+    if (body.stream === true) {
+      const c = response.clone();
+      const reader = c.body.getReader();
+      const decoder = new TextDecoder();
+
+      let responseData = "";
+
+      reader.read().then(async function process({ done, value }): Promise<any> {
+        if (done) {
+          // console.log("Stream complete. Result:");
+          // console.log(responseData);
+          // Store responseData in your database
+          ctx.waitUntil(
+            saveRequestToDb(
+              client,
+              request,
+              c,
+              url,
+              body,
+              // metadata,
+              cached,
+              true,
+              user.id,
+              undefined,
+              responseData
+            )
+          );
+          return;
+        }
+
+        const text = decoder.decode(value, { stream: true });
+        // console.log(text);
+
+        responseData += text;
+        return reader.read().then(process);
+      });
+
+      return response;
+    } else {
+      console.log("Stream is false");
+      const c = response.clone();
+      ctx.waitUntil(
+        saveRequestToDb(
+          client,
+          request,
+          c,
+          url,
+          body,
+          // metadata,
+          cached,
+          false,
+          user.id,
+          await c.json()
+        )
+      );
+      return response;
+    }
   },
 };
