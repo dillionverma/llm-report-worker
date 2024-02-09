@@ -144,11 +144,11 @@ const saveRequestToDb = async (
      INSERT INTO "Request" (
        id, openai_id, ip, url, method, status,
        request_headers, request_body, response_headers, response_body,
-       streamed_response_body, cached, streamed, user_id,
+       streamed_response_body, cached, streamed, user_id, app_id,
        prompt_tokens, completion_tokens, model, completion, "userId",     "createdAt", "updatedAt"
      ) VALUES (
        gen_random_uuid(), $1, $2, $3, $4, $5,
-       $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
+       $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
      ) RETURNING id`;
 
     const openaiId = streamed ? streamed_id : data?.id || "";
@@ -166,6 +166,7 @@ const saveRequestToDb = async (
       cached,
       streamed,
       requestHeaders.get("X-User-Id"),
+      requestHeaders.get("X-App-Id"),
       prompt_tokens,
       completion_tokens,
       model,
