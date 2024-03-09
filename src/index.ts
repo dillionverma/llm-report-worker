@@ -276,7 +276,7 @@ export default {
 
       reader.read().then(async function process({ done, value }): Promise<any> {
         if (done) {
-          // console.log("Stream complete. Result:");
+          console.log("Stream complete.");
           // console.log(responseData);
           // Store responseData in your database
           ctx.waitUntil(
@@ -294,6 +294,7 @@ export default {
               responseData
             )
           );
+          console.log("Request saved to db");
           return;
         }
 
