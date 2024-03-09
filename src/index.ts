@@ -202,7 +202,6 @@ const getUser = async (client: Client, apiKey: string) => {
     text: 'SELECT "User".* FROM "ApiKey" JOIN "User" ON "ApiKey"."userId" = "User".id WHERE "ApiKey".hashed_key = $1',
     values: [hashedApiKey],
   };
-
   console.log("sending query");
 
   const result = await client.query(query);
@@ -219,6 +218,8 @@ const getUser = async (client: Client, apiKey: string) => {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    console.log("");
+    console.log("REQUEST RECEIVED");
     const requestCopy = request.clone();
     const { headers, body, method } = await parseRequest(request);
     const url = await getUrl(request);
