@@ -244,8 +244,9 @@ export default {
     if (!user) {
       return new Response(
         JSON.stringify({
-          error: "User not found.",
-          message: "Ensure that user field is in the 'X-User-Id' headers.",
+          error: "User not found in database.",
+          message:
+            "Ensure you use the email you signed up with and it is in the 'X-User-Id' headers.",
         }),
         {
           status: 401,
