@@ -57,25 +57,35 @@ async function handleCaching(
     );
     newRequestHeaders.set("X-Api-Key", request.headers.get("X-Api-Key")!);
 
-    const openAIResponse = await fetch(url, {
-      body: request.body,
-      method: request.method,
-      headers: newRequestHeaders,
-    });
+    try {
+      const openAIResponse = await fetch(url, {
+        body: request.body,
+        method: request.method,
+        headers: newRequestHeaders,
+      });
 
-    response = new Response(
-      openAIResponse.body as ReadableStream<Uint8Array> | null,
-      {
-        status: openAIResponse.status,
-        statusText: openAIResponse.statusText,
-        headers: openAIResponse.headers,
-      }
-    );
-    // Set the cache-control header on the new response
-    response.headers.set("cache-control", `public, max-age=${CACHE_AGE}`);
+      response = new Response(
+        openAIResponse.body as ReadableStream<Uint8Array> | null,
+        {
+          status: openAIResponse.status,
+          statusText: openAIResponse.statusText,
+          headers: openAIResponse.headers,
+        }
+      );
+      // Set the cache-control header on the new response
+      response.headers.set("cache-control", `public, max-age=${CACHE_AGE}`);
 
-    ctx.waitUntil(cache.put(cacheKey, response.clone()));
-    return { response, cached: false };
+      ctx.waitUntil(cache.put(cacheKey, response.clone()));
+      return { response, cached: false };
+    } catch (e) {
+      console.error(e);
+      return {
+        response: new Response("Error fetching data from OpenAI", {
+          status: 500,
+        }),
+        cached: false,
+      };
+    }
   }
 
   console.log("Cache hit for:", cacheKey.url);
@@ -242,6 +252,7 @@ export default {
     await client.connect();
 
     const user = await getUser(client, key);
+    console.log(user.email);
 
     if (!user) {
       return new Response(
@@ -266,63 +277,136 @@ export default {
       url,
       ctx
     );
-
     if (body.stream === true) {
       const c = response.clone();
+      //@ts-ignore
       const reader = c.body.getReader();
-      const decoder = new TextDecoder();
+      const decoder = new TextDecoder("utf-8");
 
       let responseData = "";
+      let rawText = "";
 
+      console.log("about to start parsing stream");
+      let count = 0;
       reader.read().then(async function process({ done, value }): Promise<any> {
-        if (done) {
-          // console.log("Stream complete. Result:");
-          // console.log(responseData);
-          // Store responseData in your database
-          ctx.waitUntil(
-            saveRequestToDb(
-              client,
-              request,
-              c,
-              url,
-              body,
-              // metadata,
-              cached,
-              true,
-              user.id,
-              undefined,
-              responseData
-            )
-          );
-          return;
+        count += 1;
+        try {
+          console.log(`${count}: Starting done?`, done, "value", value[0]);
+        } catch (e) {
+          throw new Error("Error parsing value");
         }
 
-        const text = decoder.decode(value, { stream: true });
-        // console.log(text);
+        if (done) {
+          console.log("Stream complete, saving to db");
+          try {
+            ctx.waitUntil(
+              saveRequestToDb(
+                client,
+                request,
+                c,
+                url,
+                body,
+                // metadata,
+                cached,
+                true,
+                user.id,
+                undefined,
+                responseData
+              )
+            );
+            console.log("saved to db");
+            return;
+          } catch (e) {
+            console.log("Error saving to db");
+            console.error(e);
+            return;
+          }
+        }
 
-        responseData += text;
-        return reader.read().then(process);
+        try {
+          const chunk = decoder.decode(value, { stream: true });
+
+          if (responseData.endsWith("\n")) {
+            // Splits the responseData into chunks separated by "\n\n"
+            const listChunk = responseData
+              .replace("  (log)", "")
+              .replace("\ndata", "data")
+              .replace("\n ", "")
+              .split("\n\n");
+            listChunk.forEach((chunk) => {
+              // Splits each chunk into lines
+              chunk.split("\n").forEach((line) => {
+                try {
+                  // Assuming the line starts with a prefix that needs to be removed before parsing JSON
+                  if (!line.includes("{")) {
+                    return reader.read().then(process);
+                  }
+                  const jsonData = JSON.parse(line.substring(6)); // Adjust the '6' based on your actual prefix length
+                  // console.log("PARSED JSON DATA:", jsonData);
+                  if (
+                    jsonData.choices &&
+                    jsonData.choices.length > 0 &&
+                    jsonData.choices[0].delta?.content
+                  ) {
+                    const content = jsonData.choices[0].delta.content;
+                    // Append the content to rawText or handle it as needed
+                    rawText += content;
+                  }
+                } catch (error) {
+                  console.error("Error processing JSON:", error);
+                }
+              });
+            });
+          }
+
+          if (count % 2 == 0) {
+            console.log(`${count}: RAWText:`, rawText.slice(-2));
+            // if (count > 825) {
+            //   console.log(`${count}: RAWText:`, rawText);
+            // }
+            rawText = "";
+          }
+
+          responseData += chunk;
+        } catch (e) {
+          console.log(`CHUNK ${count} ERRORED:`);
+          console.log("RESPONSE DATA");
+          console.error(responseData);
+          console.error("Error parsing JSON: ", e);
+          // Optionally, handle incomplete/invalid JSON structure
+          // You might want to append the chunk back to buffer or handle it differently
+        }
+        const result = await reader.read();
+        console.log("done?", result.done);
+        return process(result);
       });
-
+      console.log();
+      console.log("DONE with stream");
       return response;
     } else {
       console.log("Stream is false");
       const c = response.clone();
-      ctx.waitUntil(
-        saveRequestToDb(
-          client,
-          request,
-          c,
-          url,
-          body,
-          // metadata,
-          cached,
-          false,
-          user.id,
-          await c.json()
-        )
-      );
-      return response;
+      try {
+        ctx.waitUntil(
+          saveRequestToDb(
+            client,
+            request,
+            c,
+            url,
+            body,
+            // metadata,
+            cached,
+            false,
+            user.id,
+            await c.json()
+          )
+        );
+        console.log("saved to db");
+        return response;
+      } catch (e) {
+        console.error(e);
+        return response;
+      }
     }
   },
 };
