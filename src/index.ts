@@ -255,7 +255,7 @@ export default {
     }
 
     if (method !== "POST") {
-      return new Response("Method not allowed", { status: 405 });
+      return new Response("Only POST request allowed", { status: 405 });
     }
 
     const { response, cached } = await handleCaching(
