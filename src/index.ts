@@ -78,7 +78,7 @@ async function handleCaching(
       ctx.waitUntil(cache.put(cacheKey, response.clone()));
       return { response, cached: false };
     } catch (e) {
-      console.error(e);
+      console.log(e);
       return {
         response: new Response("Error fetching data from OpenAI", {
           status: 500,
@@ -193,7 +193,7 @@ const saveRequestToDb = async (
 
     return requestResult.rows[0];
   } catch (e) {
-    console.error(e);
+    console.log(e);
     return null;
   }
 };
@@ -291,9 +291,9 @@ export default {
       reader.read().then(async function process({ done, value }): Promise<any> {
         count += 1;
         try {
-          console.log(`${count}: Starting done?`, done, "value", value[0]);
+          // console.log(`${count}: Starting done?`, done);
         } catch (e) {
-          throw new Error("Error parsing value");
+          console.log("Error logging done", e);
         }
 
         if (done) {
@@ -317,8 +317,7 @@ export default {
             console.log("saved to db");
             return;
           } catch (e) {
-            console.log("Error saving to db");
-            console.error(e);
+            console.log("Error saving to db", e);
             return;
           }
         }
@@ -353,7 +352,7 @@ export default {
                     rawText += content;
                   }
                 } catch (error) {
-                  console.error("Error processing JSON:", error);
+                  console.log("Error processing JSON:", error);
                 }
               });
             });
@@ -367,15 +366,12 @@ export default {
             rawText = "";
           }
         } catch (e) {
-          console.log(`CHUNK ${count} ERRORED:`);
-          console.log("RESPONSE DATA");
-          console.error(responseData);
-          console.error("Error parsing JSON: ", e);
+          console.log("Error parsing JSON: ", e);
           // Optionally, handle incomplete/invalid JSON structure
           // You might want to append the chunk back to buffer or handle it differently
         }
         const result = await reader.read();
-        console.log("done?", result.done);
+        // console.log("done?", result.done);
         return process(result);
       });
       console.log();
@@ -402,7 +398,7 @@ export default {
         console.log("saved to db");
         return response;
       } catch (e) {
-        console.error(e);
+        console.log(e);
         return response;
       }
     }
