@@ -227,8 +227,8 @@ export default {
     if (!key) {
       return new Response(
         JSON.stringify({
+          error: "Missing API key in 'X-Api-Key' header.",
           message: "Go to https://llm.report/ to get an API key.",
-          error: "Missing API key in X-Api-Key header.",
         }),
         {
           status: 401,
@@ -244,8 +244,8 @@ export default {
     if (!user) {
       return new Response(
         JSON.stringify({
-          message: "Go to https://llm.report/ to get an API key.",
           error: "User not found.",
+          message: "Ensure that user field is in the 'X-User-Id' headers.",
         }),
         {
           status: 401,
