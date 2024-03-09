@@ -326,9 +326,10 @@ export default {
         try {
           const chunk = decoder.decode(value, { stream: true });
 
+          responseData += chunk;
+
           if (responseData.endsWith("\n")) {
             // Splits the responseData into chunks separated by "\n\n"
-            responseData += chunk;
 
             const listChunk = responseData
               .replace("  (log)", "")
