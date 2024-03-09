@@ -328,11 +328,14 @@ export default {
 
           if (responseData.endsWith("\n")) {
             // Splits the responseData into chunks separated by "\n\n"
+            responseData += chunk;
+
             const listChunk = responseData
               .replace("  (log)", "")
               .replace("\ndata", "data")
               .replace("\n ", "")
               .split("\n\n");
+
             listChunk.forEach((chunk) => {
               // Splits each chunk into lines
               chunk.split("\n").forEach((line) => {
@@ -366,8 +369,6 @@ export default {
             // }
             rawText = "";
           }
-
-          responseData += chunk;
         } catch (e) {
           console.log(`CHUNK ${count} ERRORED:`);
           console.log("RESPONSE DATA");
