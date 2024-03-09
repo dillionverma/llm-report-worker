@@ -331,11 +331,7 @@ export default {
           if (responseData.endsWith("\n")) {
             // Splits the responseData into chunks separated by "\n\n"
 
-            const listChunk = responseData
-              .replace("  (log)", "")
-              .replace("\ndata", "data")
-              .replace("\n ", "")
-              .split("\n\n");
+            const listChunk = responseData.replace(/data: /g, "").split("\n\n");
 
             listChunk.forEach((chunk) => {
               // Splits each chunk into lines
@@ -345,7 +341,7 @@ export default {
                   if (!line.includes("{")) {
                     return reader.read().then(process);
                   }
-                  const jsonData = JSON.parse(line.substring(6)); // Adjust the '6' based on your actual prefix length
+                  const jsonData = JSON.parse(line); // Adjust the '6' based on your actual prefix length
                   // console.log("PARSED JSON DATA:", jsonData);
                   if (
                     jsonData.choices &&
