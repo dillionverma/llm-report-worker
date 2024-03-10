@@ -242,6 +242,9 @@ export default {
     await client.connect();
 
     const user = await getUser(client, key);
+    if (user && user.email) {
+      console.log(user.email);
+    }
 
     if (!user) {
       return new Response(
@@ -276,7 +279,7 @@ export default {
 
       reader.read().then(async function process({ done, value }): Promise<any> {
         if (done) {
-          console.log("Stream complete.");
+          console.log("Stream complete. Saving to db...");
           // console.log(responseData);
           // Store responseData in your database
           ctx.waitUntil(
@@ -307,7 +310,7 @@ export default {
 
       return response;
     } else {
-      console.log("Stream is false");
+      console.log("Stream is false, saving to db...");
       const c = response.clone();
       ctx.waitUntil(
         saveRequestToDb(
@@ -323,6 +326,7 @@ export default {
           await c.json()
         )
       );
+      console.log("Request saved to db");
       return response;
     }
   },
