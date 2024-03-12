@@ -294,7 +294,9 @@ export default {
     const key = headers.get("X-Api-Key")?.replace("Bearer ", "");
     let uuid = "";
 
+    console.log("about to check for key");
     if (!key) {
+      console.log("Key is missing, server error message");
       return new Response(
         JSON.stringify({
           error:
@@ -307,14 +309,16 @@ export default {
       );
     }
 
+    console.log("about to connect to database");
     const client = new Client(env.DATABASE_URL);
     await client.connect();
 
+    console.log("connected to database, about to get user");
     const user = await getUser(client, key);
     if (user && user.email) {
       console.log(user.email);
     }
-
+    console.log("got user");
     if (!user) {
       return new Response(
         JSON.stringify({
@@ -357,7 +361,6 @@ export default {
 
     console.log("initially saved to db...");
     console.log();
-
     const { response, cached } = await handleCaching(
       requestCopy,
       body,
