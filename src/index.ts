@@ -5,7 +5,6 @@ import {
   getUrl,
   numTokensFromMessages,
   sha256,
-  uuidv4,
 } from "./lib";
 
 export interface Env {
@@ -93,7 +92,6 @@ const parseRequest = async (request: Request) => {
 };
 
 const saveInitialRequestToDb = async ({
-  uuid,
   client,
   url,
   method,
@@ -101,7 +99,6 @@ const saveInitialRequestToDb = async ({
   body,
   userId,
 }: {
-  uuid: string;
   client: Client;
   url: string;
   method: string;
@@ -121,14 +118,13 @@ const saveInitialRequestToDb = async ({
        streamed_response_body, cached, streamed, user_id, app_id,
        prompt_tokens, completion_tokens, model, completion, "userId", "createdAt", "updatedAt"
      ) VALUES (
-       $1, $2, $3, $4, $5, $6,
-       $7, $8, $9, $10, 
-       $11, $12, $13, $14, $15, 
-       $16, $17, $18, $19, $20, $21, $22
+       gen_random_uuid(), $1, $2, $3, $4, $5,
+       $6, $7, $8, $9, 
+       $10, $11, $12, $13, $14,
+       $15, $16, $17, $18, $19, $20, $21
      ) RETURNING id`;
 
     const requestInsertValues = [
-      uuid, // Set id to a UUID
       "", // openaiaid
       headers.get("x-real-ip") || "",
       url,
@@ -296,7 +292,7 @@ export default {
     const { headers, body, method } = await parseRequest(request);
     const url = await getUrl(request);
     const key = headers.get("X-Api-Key")?.replace("Bearer ", "");
-    const uuid = uuidv4();
+    let uuid = "";
 
     if (!key) {
       return new Response(
@@ -337,8 +333,7 @@ export default {
 
     console.log("Saving initial request to db...");
     try {
-      await saveInitialRequestToDb({
-        uuid,
+      const uuidObject = await saveInitialRequestToDb({
         client,
         url,
         method,
@@ -346,6 +341,7 @@ export default {
         body,
         userId: user.id,
       });
+      uuid = uuidObject.id;
     } catch (e) {
       console.error(e);
       return new Response(
