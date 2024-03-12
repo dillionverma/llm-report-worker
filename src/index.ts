@@ -225,7 +225,9 @@ export default {
     const url = await getUrl(request);
     const key = headers.get("X-Api-Key")?.replace("Bearer ", "");
 
+    console.log("about to check for key");
     if (!key) {
+      console.log("Key is missing, server error message");
       return new Response(
         JSON.stringify({
           error:
@@ -238,14 +240,16 @@ export default {
       );
     }
 
+    console.log("about to connect to database");
     const client = new Client(env.DATABASE_URL);
     await client.connect();
 
+    console.log("connected to database, about to get user");
     const user = await getUser(client, key);
     if (user && user.email) {
       console.log(user.email);
     }
-
+    console.log("got user");
     if (!user) {
       return new Response(
         JSON.stringify({
@@ -262,6 +266,7 @@ export default {
       return new Response("Only POST request allowed", { status: 405 });
     }
 
+    console.log("about to handle caching");
     const { response, cached } = await handleCaching(
       requestCopy,
       body,
