@@ -1,5 +1,3 @@
-import { encode } from "gpt-tokenizer";
-
 export async function sha256(message: string) {
   // encode as UTF-8
   const msgBuffer = new TextEncoder().encode(message);
@@ -46,10 +44,10 @@ export type Message = {
 };
 
 // https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb
-export function numTokensFromMessages(
+export async function numTokensFromMessages(
   messages: Message[],
   model: string = "gpt-3.5-turbo-0613"
-): number {
+): Promise<number> {
   let tokensPerMessage: number;
   let tokensPerName: number;
   if (
@@ -86,8 +84,10 @@ export function numTokensFromMessages(
   }
 
   let numTokens = 0;
+  const { encode } = await import("gpt-tokenizer");
   for (const message of messages) {
     numTokens += tokensPerMessage;
+
     for (const [key, value] of Object.entries(message)) {
       const encoded = encode(value);
       numTokens += encoded.length;
@@ -101,7 +101,8 @@ export function numTokensFromMessages(
 }
 
 // https://github.com/botisan-ai/gpt3-tokenizer#readme
-export const getTokenCount = (str: string) => {
+export const getTokenCount = async (str: string) => {
+  const { encode } = await import("gpt-tokenizer");
   const encoded = encode(str);
   return encoded.length;
 };

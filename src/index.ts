@@ -205,12 +205,12 @@ const saveRequestToDb = async ({
     } else {
       completion = data?.choices[0].message.content;
     }
-    prompt_tokens = numTokensFromMessages(body.messages);
-    completion_tokens = getTokenCount(completion);
+    prompt_tokens = await numTokensFromMessages(body.messages);
+    completion_tokens = await getTokenCount(completion);
   } else if (url === "https://api.openai.com/v1/completions") {
     completion = data?.choices[0].text;
-    prompt_tokens = getTokenCount(body?.prompt);
-    completion_tokens = getTokenCount(completion);
+    prompt_tokens = await getTokenCount(body?.prompt);
+    completion_tokens = await getTokenCount(completion);
   }
 
   try {
