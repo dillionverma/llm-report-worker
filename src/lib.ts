@@ -1,4 +1,4 @@
-import GPT3Tokenizer from "gpt3-tokenizer";
+import { encode } from "gpt-tokenizer";
 
 export async function sha256(message: string) {
   // encode as UTF-8
@@ -50,11 +50,12 @@ export function numTokensFromMessages(
   messages: Message[],
   model: string = "gpt-3.5-turbo-0613"
 ): number {
-  const tokenizer = new GPT3Tokenizer({ type: "codex" });
   let tokensPerMessage: number;
   let tokensPerName: number;
   if (
     [
+      "gpt-3.5-turbo-0125",
+      "gpt-4-turbo-2024-04-09",
       "gpt-3.5-turbo-0613",
       "gpt-3.5-turbo-16k-0613",
       "gpt-4-0314",
@@ -88,8 +89,8 @@ export function numTokensFromMessages(
   for (const message of messages) {
     numTokens += tokensPerMessage;
     for (const [key, value] of Object.entries(message)) {
-      const encoded = tokenizer.encode(value);
-      numTokens += encoded.bpe.length;
+      const encoded = encode(value);
+      numTokens += encoded.length;
       if (key === "name") {
         numTokens += tokensPerName;
       }
@@ -99,10 +100,8 @@ export function numTokensFromMessages(
   return numTokens;
 }
 
-const tokenizer = new GPT3Tokenizer({ type: "gpt3" }); // or 'codex'
-
 // https://github.com/botisan-ai/gpt3-tokenizer#readme
 export const getTokenCount = (str: string) => {
-  const encoded: { bpe: number[]; text: string[] } = tokenizer.encode(str);
-  return encoded.bpe.length;
+  const encoded = encode(str);
+  return encoded.length;
 };
